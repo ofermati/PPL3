@@ -213,8 +213,13 @@ export const typeofLetrec = (exp: LetrecExp, tenv: TEnv): Result<TExp> => {
 //   (define (var : texp) val)
 // TODO - write the true definition
 export const typeofDefine = (exp: DefineExp, tenv: TEnv): Result<VoidTExp> => {
-    // return Error("TODO");
-    return makeOk(makeVoidTExp());
+    const varType = exp.var.texp;
+    const valTypeResult = typeofExp(exp.val, tenv);
+    return bind(valTypeResult, (valType: TExp) =>
+        checkEqualType(valType, varType ,exp)
+            ? makeOk(makeVoidTExp())
+            : makeFailure('Type mismatch in define: expected ${unparseTExp(varType)}, but got ${unparseTExp(valType)}')
+    );
 };
 
 // Purpose: compute the type of a program
