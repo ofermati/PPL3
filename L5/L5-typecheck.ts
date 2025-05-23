@@ -4,14 +4,15 @@ import { equals, map, zipWith } from 'ramda';
 import { isAppExp, isBoolExp, isDefineExp, isIfExp, isLetrecExp, isLetExp, isNumExp,
          isPrimOp, isProcExp, isProgram, isStrExp, isVarRef, parseL5Exp, unparse,
          AppExp, BoolExp, DefineExp, Exp, IfExp, LetrecExp, LetExp, NumExp,
-         Parsed, PrimOp, ProcExp, Program, StrExp } from "./L5-ast";
+         Parsed, PrimOp, ProcExp, Program, StrExp, 
+         parseL5Program} from "./L5-ast";
 import { applyTEnv, makeEmptyTEnv, makeExtendTEnv, TEnv } from "./TEnv";
 import { isProcTExp, makeBoolTExp, makeNumTExp, makeProcTExp, makeStrTExp, makeVoidTExp,
          parseTE, unparseTExp,
          BoolTExp, NumTExp, StrTExp, TExp, VoidTExp } from "./TExp";
 import { isEmpty, allT, first, rest, NonEmptyList, List, isNonEmptyList } from '../shared/list';
 import { Result, makeFailure, bind, makeOk, zipWithResult } from '../shared/result';
-import { parse as p } from "../shared/parser";
+import { parse as p, parse } from "../shared/parser";
 import { format } from '../shared/format';
 
 // Purpose: Check that type expressions are equivalent
@@ -214,16 +215,34 @@ export const typeofLetrec = (exp: LetrecExp, tenv: TEnv): Result<TExp> => {
 // TODO - write the true definition
 export const typeofDefine = (exp: DefineExp, tenv: TEnv): Result<VoidTExp> => {
     const varType = exp.var.texp;
-    const valTypeResult = typeofExp(exp.val, tenv);
-    return bind(valTypeResult, (valType: TExp) =>
-        checkEqualType(valType, varType ,exp)
-            ? makeOk(makeVoidTExp())
-            : makeFailure('Type mismatch in define: expected ${unparseTExp(varType)}, but got ${unparseTExp(valType)}')
-    );
+    return bind(typeofExp(exp.val, tenv), (valTE: TExp) =>
+        bind(checkEqualType(valTE, varType, exp), _ =>
+            makeOk(makeVoidTExp())));
 };
+
 
 // Purpose: compute the type of a program
 // Typing rule:
 // TODO - write the true definition
-export const typeofProgram = (exp: Program, tenv: TEnv): Result<TExp> =>
-    makeFailure("TODO");
+export const typeofProgram = (exp: Program, tenv: TEnv): Result<TExp> =>{
+    const processExps = (exps: List<Exp>, env: TEnv): Result<TExp> =>
+        !isNonEmptyList<Exp>(exps) //there are no expressions in the program
+            ? makeFailure("Empty program")
+            : isDefineExp(first(exps))
+                ? bind(typeofDefine(first(exps) as DefineExp, env), _ =>
+                        processExps(rest(exps),
+                        makeExtendTEnv([(first(exps) as DefineExp).var.var],
+                          [(first(exps) as DefineExp).var.texp],  
+                          env))) 
+                : isEmpty(rest(exps))
+                    ? typeofExp(first(exps), env)
+                    : bind(typeofExp(first(exps), env), _ =>
+                          processExps(rest(exps), env));
+    return processExps(exp.exps, tenv);
+};
+
+
+export const L5programTypeof = (program: string): Result<string> =>
+    bind(parse(program),   sexp  =>
+    bind(parseL5Program(sexp), prog  =>   
+    bind(typeofProgram(prog, makeEmptyTEnv()), unparseTExp)));
