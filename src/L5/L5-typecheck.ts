@@ -5,7 +5,9 @@ import { isAppExp, isBoolExp, isDefineExp, isIfExp, isLetrecExp, isLetExp, isNum
          isPrimOp, isProcExp, isProgram, isStrExp, isVarRef, parseL5Exp, unparse,
          AppExp, BoolExp, DefineExp, Exp, IfExp, LetrecExp, LetExp, NumExp,
          Parsed, PrimOp, ProcExp, Program, StrExp, 
-         parseL5Program} from "./L5-ast";
+         parseL5Program,
+         isLitExp,
+         LitExp} from "./L5-ast";
 import { applyTEnv, makeEmptyTEnv, makeExtendTEnv, TEnv } from "./TEnv";
 import { isProcTExp, makeBoolTExp, makeNumTExp, makeProcTExp, makeStrTExp, makeVoidTExp,
          parseTE, unparseTExp,
@@ -25,6 +27,7 @@ import { parse as p, parse } from "../shared/parser";
 import { format } from '../shared/format';
 import { checkProcEqualTypes } from './L5-typeinference';
 import { unbox } from '../shared/box';
+import { isCompoundSExp, isSymbolSExp, SExpValue } from './L5-value';
 
 
 
@@ -92,6 +95,7 @@ export const typeofExp = (exp: Parsed, tenv: TEnv): Result<TExp> =>
     isLetrecExp(exp) ? typeofLetrec(exp, tenv) :
     isDefineExp(exp) ? typeofDefine(exp, tenv) :
     isProgram(exp) ? typeofProgram(exp, tenv) :
+    isLitExp(exp) ? typeofLit(exp.val):
     // TODO: isSetExp(exp) isLitExp(exp)
     makeFailure(`Unknown type: ${format(exp)}`);
 
@@ -303,3 +307,15 @@ export const L5programTypeof = (program: string): Result<string> =>
     bind(parse(program),   sexp  =>
     bind(parseL5Program(sexp), prog  =>   
     bind(typeofProgram(prog, makeEmptyTEnv()), unparseTExp)));
+
+
+export const typeofLit = (val: SExpValue): Result<TExp> =>
+    (typeof val === "number") ? makeOk(makeNumTExp()) :
+    (typeof val === "boolean") ? makeOk(makeBoolTExp()) :
+    (typeof val === "string") ? makeOk(makeStrTExp()) :
+    isSymbolSExp(val) ? makeOk(makeStrTExp()) :
+    isCompoundSExp(val) ?
+        bind(typeofLit(val.val1), t1 =>
+        bind(typeofLit(val.val2), t2 =>
+        makeOk(makePairTExp(t1, t2)))) :
+    makeFailure(`Unknown literal type: ${JSON.stringify(val)}`);
