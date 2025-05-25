@@ -20,7 +20,8 @@ import { isProcTExp, makeBoolTExp, makeNumTExp, makeProcTExp, makeStrTExp, makeV
          eqAtomicTExp,
          tvarDeref,
          makePairTExp,
-         makeTVar} from "./TExp";
+         makeTVar, 
+         makeLiteralTExp} from "./TExp";
 import { isEmpty, allT, first, rest, NonEmptyList, List, isNonEmptyList } from '../shared/list';
 import { Result, makeFailure, bind, makeOk, zipWithResult, mapv, mapResult } from '../shared/result';
 import { parse as p, parse } from "../shared/parser";
@@ -95,7 +96,7 @@ export const typeofExp = (exp: Parsed, tenv: TEnv): Result<TExp> =>
     isLetrecExp(exp) ? typeofLetrec(exp, tenv) :
     isDefineExp(exp) ? typeofDefine(exp, tenv) :
     isProgram(exp) ? typeofProgram(exp, tenv) :
-    isLitExp(exp) ? typeofLit(exp.val):
+    isLitExp(exp) ? typeofLit(exp.val) :
     // TODO: isSetExp(exp) isLitExp(exp)
     makeFailure(`Unknown type: ${format(exp)}`);
 
@@ -309,13 +310,27 @@ export const L5programTypeof = (program: string): Result<string> =>
     bind(typeofProgram(prog, makeEmptyTEnv()), unparseTExp)));
 
 
-export const typeofLit = (val: SExpValue): Result<TExp> =>
-    (typeof val === "number") ? makeOk(makeNumTExp()) :
-    (typeof val === "boolean") ? makeOk(makeBoolTExp()) :
-    (typeof val === "string") ? makeOk(makeStrTExp()) :
-    isSymbolSExp(val) ? makeOk(makeStrTExp()) :
-    isCompoundSExp(val) ?
-        bind(typeofLit(val.val1), t1 =>
-        bind(typeofLit(val.val2), t2 =>
-        makeOk(makePairTExp(t1, t2)))) :
-    makeFailure(`Unknown literal type: ${JSON.stringify(val)}`);
+import { SExpValue, isCompoundSExp, isSymbolSExp } from "./L5-value";
+import { Result, bind, makeOk, makeFailure } from "../shared/result";
+import { makeNumTExp, makeBoolTExp, makeLiteralTExp,
+         makePairTExp } from "./TExp";
+
+// val – הערך המצוטט, nested=true אומר שאנו בתוך Pair רקורסיבי
+export const typeofLit = (val: SExpValue, nested = false): Result<TExp> =>
+    // 1. (quote x)  →  literal
+    (isCompoundSExp(val) &&
+     isSymbolSExp(val.val1) && val.val1.val === "quote")
+        ? makeOk(makeLiteralTExp())
+
+    // 2. (a . b)  →  Pair
+    : isCompoundSExp(val)
+        ? bind(typeofLit(val.val1, true), t1 =>
+          bind(typeofLit(val.val2, true), t2 =>
+          makeOk(makePairTExp(t1, t2))))
+
+    : nested
+        ? (typeof val === "number")  ? makeOk(makeNumTExp())
+        : (typeof val === "boolean") ? makeOk(makeBoolTExp())
+        : makeOk(makeLiteralTExp())
+
+    : makeOk(makeLiteralTExp());
