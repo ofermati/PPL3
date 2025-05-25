@@ -310,27 +310,21 @@ export const L5programTypeof = (program: string): Result<string> =>
     bind(typeofProgram(prog, makeEmptyTEnv()), unparseTExp)));
 
 
-import { SExpValue, isCompoundSExp, isSymbolSExp } from "./L5-value";
-import { Result, bind, makeOk, makeFailure } from "../shared/result";
-import { makeNumTExp, makeBoolTExp, makeLiteralTExp,
-         makePairTExp } from "./TExp";
 
-// val – הערך המצוטט, nested=true אומר שאנו בתוך Pair רקורסיבי
-export const typeofLit = (val: SExpValue, nested = false): Result<TExp> =>
-    // 1. (quote x)  →  literal
-    (isCompoundSExp(val) &&
-     isSymbolSExp(val.val1) && val.val1.val === "quote")
-        ? makeOk(makeLiteralTExp())
+export const typeofLit = (val: SExpValue, inPair = false): Result<TExp> =>
+    // 1. (quote x)   ⇒  literal
+    (isCompoundSExp(val) && isSymbolSExp(val.val1) && val.val1.val === "quote") ? 
+        makeOk(makeLiteralTExp())
 
-    // 2. (a . b)  →  Pair
-    : isCompoundSExp(val)
-        ? bind(typeofLit(val.val1, true), t1 =>
-          bind(typeofLit(val.val2, true), t2 =>
-          makeOk(makePairTExp(t1, t2))))
+        // 2. real pair  (a . b)  ⇒  Pair <t₁ t₂>
+        : isCompoundSExp(val) ? 
+            bind(typeofLit(val.val1, true), t1 =>
+            bind(typeofLit(val.val2, true), t2 =>
+            makeOk(makePairTExp(t1, t2))))
+            // 3.inside the pair
+            : inPair ? 
+                  (typeof val === "number")  ? makeOk(makeNumTExp())
+                : (typeof val === "boolean") ? makeOk(makeBoolTExp())
+                : makeOk(makeLiteralTExp())
 
-    : nested
-        ? (typeof val === "number")  ? makeOk(makeNumTExp())
-        : (typeof val === "boolean") ? makeOk(makeBoolTExp())
-        : makeOk(makeLiteralTExp())
-
-    : makeOk(makeLiteralTExp());
+        : makeOk(makeLiteralTExp());
