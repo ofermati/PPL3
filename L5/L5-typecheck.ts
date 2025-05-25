@@ -9,22 +9,61 @@ import { isAppExp, isBoolExp, isDefineExp, isIfExp, isLetrecExp, isLetExp, isNum
 import { applyTEnv, makeEmptyTEnv, makeExtendTEnv, TEnv } from "./TEnv";
 import { isProcTExp, makeBoolTExp, makeNumTExp, makeProcTExp, makeStrTExp, makeVoidTExp,
          parseTE, unparseTExp,
-         BoolTExp, NumTExp, StrTExp, TExp, VoidTExp } from "./TExp";
+         BoolTExp, NumTExp, StrTExp, TExp, VoidTExp, 
+         isPairTExp,
+         isTVar, tvarIsNonEmpty, tvarContents,
+         tvarSetContents, makeFreshTVar, 
+         isAtomicTExp,
+         TVar,
+         eqAtomicTExp,
+         tvarDeref,
+         makePairTExp,
+         makeTVar} from "./TExp";
 import { isEmpty, allT, first, rest, NonEmptyList, List, isNonEmptyList } from '../shared/list';
-import { Result, makeFailure, bind, makeOk, zipWithResult } from '../shared/result';
+import { Result, makeFailure, bind, makeOk, zipWithResult, mapv, mapResult } from '../shared/result';
 import { parse as p, parse } from "../shared/parser";
 import { format } from '../shared/format';
+import { checkProcEqualTypes } from './L5-typeinference';
+import { unbox } from '../shared/box';
+
+
 
 // Purpose: Check that type expressions are equivalent
 // as part of a fully-annotated type check process of exp.
 // Return an error if the types are different - true otherwise.
 // Exp is only passed for documentation purposes.
-const checkEqualType = (te1: TExp, te2: TExp, exp: Exp): Result<true> =>
-  equals(te1, te2) ? makeOk(true) :
-  bind(unparseTExp(te1), (te1: string) =>
-    bind(unparseTExp(te2), (te2: string) =>
-        bind(unparse(exp), (exp: string) => 
-            makeFailure<true>(`Incompatible types: ${te1} and ${te2} in ${exp}`))));
+export const checkEqualType = (te1: TExp, te2: TExp, exp: Exp): Result<true> => {
+    const te1_ = derefT(te1);
+    const te2_ = derefT(te2);
+    return isAtomicTExp(te1_) && isAtomicTExp(te2_) && te1_.tag === te2_.tag ? makeOk(true) :
+           isTVar(te1_) ? checkTVarEqualTypes(te1_, te2_, exp) :
+           isTVar(te2_) ? checkTVarEqualTypes(te2_, te1_, exp) :
+           isPairTExp(te1_) && isPairTExp(te2_) ?
+               bind(checkEqualType(te1_.fst, te2_.fst, exp),
+                    _ => checkEqualType(te1_.snd, te2_.snd, exp)) :
+           isProcTExp(te1_) && isProcTExp(te2_) ?
+               checkProcEqualTypes(te1_, te2_, exp) :
+           makeFailure(`Incompatible types: ${JSON.stringify(te1_)} and ${JSON.stringify(te2_)} in ${unparse(exp)}`);
+};
+
+
+const checkTVarEqualTypes = (tvar: TVar, te: TExp, exp: Exp): Result<true> =>
+  tvarIsNonEmpty(tvar) ? checkEqualType(tvarContents(tvar)!, te, exp)
+                       : mapv(checkNoOccurrence(tvar, te, exp),
+                              _ => { tvarSetContents(tvar, te); return true });
+
+const checkNoOccurrence = (tvar: TVar, te: TExp, exp: Exp): Result<true> => {
+  const loop = (t: TExp): Result<true> =>
+    isTVar(t) ? (tvar === t
+                   ? makeFailure(`Occur check error - circular reference of ${tvar.var}`)
+                   : (tvarIsNonEmpty(t) ? loop(tvarContents(t)!) : makeOk(true)))
+    : isAtomicTExp(t) ? makeOk(true)
+    : isProcTExp(t) ? bind(mapResult(loop, t.paramTEs), _l => loop(t.returnTE))
+    : isPairTExp(t) ? bind(loop(t.fst), _ => loop(t.snd))
+    : makeFailure(`Bad type expression: ${format(t)}`);
+  return loop(te);
+};
+
 
 // Compute the type of L5 AST exps to TE
 // ===============================================
@@ -45,7 +84,7 @@ export const typeofExp = (exp: Parsed, tenv: TEnv): Result<TExp> =>
     isBoolExp(exp) ? makeOk(typeofBool(exp)) :
     isStrExp(exp) ? makeOk(typeofStr(exp)) :
     isPrimOp(exp) ? typeofPrim(exp) :
-    isVarRef(exp) ? applyTEnv(tenv, exp.var) :
+    isVarRef(exp) ? bind(applyTEnv(tenv, exp.var), (te) => makeOk(derefT(te))) :
     isIfExp(exp) ? typeofIf(exp, tenv) :
     isProcExp(exp) ? typeofProc(exp, tenv) :
     isAppExp(exp) ? typeofApp(exp, tenv) :
@@ -103,6 +142,18 @@ export const typeofPrim = (p: PrimOp): Result<TExp> =>
     (p.op === 'string=?') ? parseTE('(T1 * T2 -> boolean)') :
     (p.op === 'display') ? parseTE('(T -> void)') :
     (p.op === 'newline') ? parseTE('(Empty -> void)') :
+    (p.op === "cons") ? ((): Result<TExp> => {
+            const t1 = makeFreshTVar();
+            const t2 = makeFreshTVar();
+            return makeOk(makeProcTExp([t1, t2], makePairTExp(t1, t2))); })() :    
+    (p.op === "car") ? ((): Result<TExp> => {
+            const t1 = makeFreshTVar();
+            const t2 = makeFreshTVar();
+            return makeOk(makeProcTExp([makePairTExp(t1, t2)], t1));})() :
+    (p.op === "cdr") ? ((): Result<TExp> => {
+            const t1 = makeFreshTVar();
+            const t2 = makeFreshTVar();
+            return makeOk(makeProcTExp([makePairTExp(t1, t2)], t2));})() :
     makeFailure(`Primitive not yet implemented: ${p.op}`);
 
 // Purpose: compute the type of an if-exp
@@ -135,6 +186,12 @@ export const typeofProc = (proc: ProcExp, tenv: TEnv): Result<TExp> => {
                             checkEqualType(body, proc.returnTE, proc));
     return bind(constraint1, _ => makeOk(makeProcTExp(argsTEs, proc.returnTE)));
 };
+
+const derefT = (te: TExp): TExp =>
+    isTVar(te) ? tvarDeref(te) :
+    isPairTExp(te) ? makePairTExp(derefT(te.fst), derefT(te.snd)) :
+    isProcTExp(te) ? makeProcTExp(te.paramTEs.map(derefT), derefT(te.returnTE)) :
+    te;
 
 // Purpose: compute the type of an app-exp
 // Typing rule:

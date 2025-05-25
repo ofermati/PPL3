@@ -1,5 +1,5 @@
 import { map, prop, includes } from 'ramda';
-import { eqTVar, isAtomicTExp, isProcTExp, isTVar, makeProcTExp, unparseTExp, TExp, TVar } from "./TExp";
+import { eqTVar, isAtomicTExp, isProcTExp, isTVar, makeProcTExp, unparseTExp, TExp, TVar, isPairTExp, makePairTExp } from "./TExp";
 import { cons, isEmpty, first, rest, isNonEmptyList } from "../shared/list";
 import { Result, makeOk, makeFailure, mapResult, bind, zipWithResult, mapv } from '../shared/result';
 import { format } from '../shared/format';
@@ -67,6 +67,7 @@ export const applySub = (sub: Sub, te: TExp): TExp =>
     isAtomicTExp(te) ? te :
     isTVar(te) ? subGet(sub, te) :
     isProcTExp(te) ? makeProcTExp(map((te) => applySub(sub, te), te.paramTEs), applySub(sub, te.returnTE)) :
+    isPairTExp(te) ? makePairTExp(applySub(sub, te.fst), applySub(sub, te.snd)) :
     te;
 
 // ============================================================

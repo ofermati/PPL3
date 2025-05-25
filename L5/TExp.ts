@@ -126,7 +126,7 @@ export const tvarDeref = (te: TExp): TExp => {
 //PairTExp
 export type PairTExp = { tag: "PairTExp"; fst: TExp; snd: TExp };
 export const makePairTExp = (fst: TExp, snd: TExp): PairTExp =>
-    ({ tag: "PairTExp", fst, snd });
+    ({ tag: "PairTExp", fst:fst, snd:snd });
 export const isPairTExp = (x: any): x is PairTExp =>
     x.tag === "PairTExp";
 
@@ -269,6 +269,7 @@ const matchTVarsInTE = <T1, T2>(te1: TExp, te2: TExp,
     (isTVar(te1) || isTVar(te2)) ? matchTVarsinTVars(tvarDeref(te1), tvarDeref(te2), succ, fail) :
     (isAtomicTExp(te1) || isAtomicTExp(te2)) ?
         ((isAtomicTExp(te1) && isAtomicTExp(te2) && eqAtomicTExp(te1, te2)) ? succ([]) : fail()) :
+    (isPairTExp(te1) && isPairTExp(te2)) ? matchTVarsInTEs([te1.fst, te1.snd], [te2.fst, te2.snd], succ, fail) :
     matchTVarsInTProcs(te1, te2, succ, fail);
 
 // te1 and te2 are the result of tvarDeref

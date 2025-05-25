@@ -24,9 +24,11 @@ const checkEqualType = (te1: T.TExp | undefined, te2: T.TExp, exp: A.Exp): Resul
                                                     bind(T.unparseTExp(te2), (te2: string) =>
                                                         makeFailure<true>(`Incompatible atomic types ${te1} - ${te2}`))) :
     T.isProcTExp(te1) && T.isProcTExp(te2) ? checkProcEqualTypes(te1, te2, exp) :
+    T.isPairTExp(te1) && T.isPairTExp(te2) ? checkPairEqualTypes(te1, te2, exp) :
     bind(T.unparseTExp(te1), (te1: string) =>
         bind(T.unparseTExp(te2), (te2: string) =>
             makeFailure<true>(`Incompatible types structure: ${te1} - ${te2}`)));
+
 
 // Purpose: make two lists of equal length of type expressions equal
 // Return an error if one of the pair of TExps are not compatible - true otherwise.
@@ -36,11 +38,17 @@ const checkEqualTypes = (tes1: T.TExp[], tes2: T.TExp[], exp: A.Exp): Result<tru
     return bind(checks, _ => makeOk(true));
 }
 
-const checkProcEqualTypes = (te1: T.ProcTExp, te2: T.ProcTExp, exp: A.Exp): Result<true> =>
+export const checkProcEqualTypes = (te1: T.ProcTExp, te2: T.ProcTExp, exp: A.Exp): Result<true> =>
     te1.paramTEs.length !== te2.paramTEs.length ? bind(T.unparseTExp(te1), (te1: string) =>
                                                     bind(T.unparseTExp(te2), (te2: string) =>
                                                         makeFailure<true>(`Wrong number of args ${te1} - ${te2}`))) :
     checkEqualTypes(T.procTExpComponents(te1), T.procTExpComponents(te2), exp);
+
+const checkPairEqualTypes = (te1: T.PairTExp, te2: T.PairTExp, exp: A.Exp): Result<true> =>
+    bind(checkEqualType(te1.fst, te2.fst, exp), _ =>
+    bind(checkEqualType(te1.snd, te2.snd, exp), _ =>
+    makeOk(true)));
+
 
 // Purpose: check that a type variable matches a type expression
 // Updates the var is needed to refer to te.
@@ -60,6 +68,7 @@ const checkNoOccurrence = (tvar: T.TVar, te: T.TExp, exp: A.Exp): Result<true> =
     const loop = (te1: T.TExp): Result<true> =>
         T.isAtomicTExp(te1) ? makeOk(true) :
         T.isProcTExp(te1) ? checkList(T.procTExpComponents(te1)) :
+        T.isPairTExp(te1) ? bind(loop(te1.fst), _ => loop(te1.snd)) :
         T.isTVar(te1) ? 
             (T.eqTVar(te1, tvar) ? bind(A.unparse(exp), (exp: string) => makeFailure(`Occur check error - ${te1.var} - ${tvar.var} in ${format(exp)}`)) : 
              makeOk(true)) :
